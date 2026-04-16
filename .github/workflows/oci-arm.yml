@@ -15,6 +15,34 @@ jobs:
     steps:
       - name: Install OCI CLI
         run: pip install oci-cli
+      - name: Get ARM Ubuntu Image OCID
+        id: get_image
+        run: |
+          IMAGE_ID=$(oci compute image list \
+            --compartment-id "${{ secrets.OCI_TENANCY_ID }}" \
+            --operating-system "Canonical Ubuntu" \
+            --operating-system-version "22.04 Minimal aarch64" \
+            --shape "VM.Standard.A1.Flex" \
+            --sort-by TIMECREATED \
+            --sort-order DESC \
+            --limit 1 \
+            --query 'data[0].id' \
+            --raw-output 2>/dev/null || echo "")
+          if [ -z "$IMAGE_ID" ]; then
+            IMAGE_ID=$(oci compute image list \
+              --compartment-id "${{ secrets.OCI_TENANCY_ID }}" \
+              --operating-system "Canonical Ubuntu" \
+              --sort-by TIMECREATED \
+              --sort-order DESC \
+              --limit 20 \
+              --query 'data[?contains(`operating-system-version`, `aarch64`)].id | [0]' \
+              --raw-output 2>/dev/null || echo "")
+          fi
+          if [ -z "$IMAGE_ID" ]; then
+            IMAGE_ID="${{ secrets.OCI_IMAGE_ID }}"
+          fi
+          echo "image_id=$IMAGE_ID" >> $GITHUB_OUTPUT
+          echo "Using image: $IMAGE_ID"
       - name: Try Create ARM Instance
         run: |
           oci compute instance launch \
@@ -22,7 +50,7 @@ jobs:
             --availability-domain "yixF:AP-MUMBAI-1-AD-1" \
             --shape "VM.Standard.A1.Flex" \
             --shape-config '{"ocpus":4,"memoryInGBs":24}' \
-            --image-id "${{ secrets.OCI_IMAGE_ID }}" \
+            --image-id "${{ steps.get_image.outputs.image_id }}" \
             --subnet-id "${{ secrets.OCI_SUBNET_ID }}" \
             --display-name "arm-auto" \
             --ssh-authorized-keys-file <(echo "${{ secrets.OCI_SSH_PUBLIC_KEY }}") \
