@@ -1,0 +1,63 @@
+name: OCI ARM Instance Creator
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  create-arm-instance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install OCI CLI
+        run: |
+          curl -L -O https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh
+          chmod +x install.sh
+          ./install.sh --accept-all-defaults
+          echo "/home/runner/bin" >> $GITHUB_PATH
+
+      - name: Setup OCI Config
+        run: |
+          mkdir -p ~/.oci
+          echo "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/private_key.pem
+          chmod 600 ~/.oci/private_key.pem
+          cat > ~/.oci/config << EOF
+          [DEFAULT]
+          user=${{ secrets.OCI_USER_ID }}
+          fingerprint=${{ secrets.OCI_KEY_FINGERPRINT }}
+          tenancy=${{ secrets.OCI_TENANCY_ID }}
+          region=${{ secrets.OCI_REGION }}
+          key_file=~/.oci/private_key.pem
+          EOF
+          chmod 600 ~/.oci/config
+
+      - name: Check Existing ARM Instances
+        id: check
+        run: |
+          COUNT=$(oci compute instance list \
+            --compartment-id ${{ secrets.OCI_TENANCY_ID }} \
+            --shape VM.Standard.A1.Flex \
+            --lifecycle-state RUNNING \
+            --query 'length(data)' \
+            --raw-output 2>/dev/null || echo "0")
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
+          echo "Existing ARM instances: $COUNT"
+
+      - name: Create ARM Instance
+        if: steps.check.outputs.count == '0'
+        run: |
+          echo "Attempting to create ARM instance..."
+          oci compute instance launch \
+            --compartment-id ${{ secrets.OCI_TENANCY_ID }} \
+            --availability-domain "$(oci iam availability-domain list --compartment-id ${{ secrets.OCI_TENANCY_ID }} --query 'data[0].name' --raw-output)" \
+            --shape VM.Standard.A1.Flex \
+            --shape-config '{"ocpus": 4, "memoryInGBs": 24}' \
+            --image-id ${{ secrets.OCI_IMAGE_ID }} \
+            --subnet-id ${{ secrets.OCI_SUBNET_ID }} \
+            --display-name "arm-instance-auto" \
+            --ssh-authorized-keys-file <(echo "${{ secrets.OCI_SSH_PUBLIC_KEY }}") \
+            --assign-public-ip true && echo "SUCCESS: ARM instance created!" || echo "FAILED: Out of capacity, will retry in 5 minutes"
+
+      - name: Already Have Instance
+        if: steps.check.outputs.count != '0'
+        run: echo "ARM instance already exists! Count: ${{ steps.check.outputs.count }}"
