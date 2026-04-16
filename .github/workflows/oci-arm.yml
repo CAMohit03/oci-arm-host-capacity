@@ -19,11 +19,11 @@ jobs:
         run: |
           oci compute instance launch \
             --compartment-id "${{ secrets.OCI_TENANCY_ID }}" \
+            --availability-domain "yixF:AP-MUMBAI-1-AD-1" \
             --shape "VM.Standard.A1.Flex" \
             --shape-config '{"ocpus":4,"memoryInGBs":24}' \
             --image-id "${{ secrets.OCI_IMAGE_ID }}" \
             --subnet-id "${{ secrets.OCI_SUBNET_ID }}" \
             --display-name "arm-auto" \
             --ssh-authorized-keys-file <(echo "${{ secrets.OCI_SSH_PUBLIC_KEY }}") \
-            --assign-public-ip true \
-            --wait-for-state RUNNING || true
+            --assign-public-ip true || true
